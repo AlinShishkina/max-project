@@ -40,7 +40,10 @@ export async function setSettings(credentials) {
       webhookUrl: '',
       outgoingWebhook: 'yes',
       stateWebhook: 'yes',
-      incomingWebhook: 'yes'
+      incomingWebhook: 'yes',
+      // ВАЖНО: включаем уведомления о сообщениях, отправленных через API
+      outgoingAPIMessageWebhook: 'yes',
+      outgoingMessageWebhook: 'yes'
     })
   });
   return parseResponse(res);

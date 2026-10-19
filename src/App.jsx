@@ -31,12 +31,10 @@ export default function App() {
   const [stateInstance, setStateInstance] = useState('');
   const [notice, setNotice] = useState('');
 
-  // Флаг остановки цикла опроса без пересоздания эффекта
+
   const stopRef = useRef(false);
-  // Защита от повторной обработки одного и того же receiptId
   const processedRef = useRef(new Set());
 
-  // 1) Сохраняем / чистим учётные данные
   useEffect(() => {
     if (credentials) {
       localStorage.setItem(CREDS_KEY, JSON.stringify(credentials));
@@ -45,7 +43,6 @@ export default function App() {
     }
   }, [credentials]);
 
-  // 2) Настройка инстанса + получение состояния
   useEffect(() => {
     if (!credentials) return undefined;
 
@@ -63,7 +60,6 @@ export default function App() {
     return undefined;
   }, [credentials]);
 
-  // 3) Долгий опрос очереди уведомлений
   useEffect(() => {
     if (!credentials) return undefined;
 
@@ -76,16 +72,35 @@ export default function App() {
         sleepTimer = setTimeout(resolve, ms);
       });
 
-    const appendIncoming = (chatId, msg) => {
+    const appendMessage = (chatId, msg, isOutgoingFromApi = false) => {
       setChats((prev) => {
-        const existing = prev.find((c) => c.chatId === chatId);
-        if (existing) {
+        const existingChat = prev.find((c) => c.chatId === chatId);
+        
+        if (existingChat) {
+          // проверяем, нет ли уже такого сообщения
+          const isDuplicate = existingChat.messages.some((m) => m.id === msg.id);
+          
+          if (isDuplicate) {
+            return prev.map((c) =>
+              c.chatId === chatId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === msg.id ? { ...m, pending: false } : m
+                    )
+                  }
+                : c
+            );
+          }
+
           return prev.map((c) =>
             c.chatId === chatId
               ? { ...c, messages: [...c.messages, msg] }
               : c
           );
         }
+        
+        // если чата еще нет в списке, создаем его
         return [
           ...prev,
           {
@@ -105,7 +120,6 @@ export default function App() {
       }
 
       if (processedRef.current.has(receiptId)) {
-        // На всякий случай удаляем дубликат
         await api.deleteNotification(credentials, receiptId);
         return;
       }
@@ -113,12 +127,13 @@ export default function App() {
 
       const type = body.typeWebhook;
 
+      // входящие сообщения
       if (type === 'incomingMessageReceived') {
         if (body.messageData?.typeMessage === 'textMessage') {
           const chatId = body.senderData?.chatId;
           const text = body.messageData?.textMessageData?.textMessage;
           if (chatId && text) {
-            appendIncoming(chatId, {
+            appendMessage(chatId, {
               id: body.idMessage || `in-${receiptId}`,
               text,
               outgoing: false,
@@ -126,11 +141,28 @@ export default function App() {
             });
           }
         }
-      } else if (type === 'stateInstanceChanged') {
+      } 
+      // исходящие сообщения 
+      else if (type === 'outgoingAPIMessageReceived' || type === 'outgoingMessageReceived') {
+        if (body.messageData?.typeMessage === 'textMessage') {
+          const chatId = body.senderData?.chatId;
+          const text = body.messageData?.textMessageData?.textMessage;
+          if (chatId && text) {
+            appendMessage(chatId, {
+              id: body.idMessage || `out-${receiptId}`,
+              text,
+              outgoing: true,
+              pending: false,
+              timestamp: body.timestamp || Math.floor(Date.now() / 1000)
+            }, true);
+          }
+        }
+      } 
+      // изменение статуса инстанса
+      else if (type === 'stateInstanceChanged') {
         setStateInstance(body.stateInstance || '');
       }
 
-      // Подтверждаем обработку
       await api.deleteNotification(credentials, receiptId);
     };
 
@@ -161,7 +193,6 @@ export default function App() {
       stopRef.current = true;
       if (sleepTimer) clearTimeout(sleepTimer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [credentials]);
 
   const handleLogin = useCallback((creds) => {
@@ -180,7 +211,7 @@ export default function App() {
     setNotice('');
   }, []);
 
-  // Создание чата: проверяем аккаунт через checkAccount, берём chatId из ответа
+  // создание чата
   const handleCreateChat = useCallback(
     async (input) => {
       if (!credentials) return;
@@ -195,7 +226,6 @@ export default function App() {
         let displayName;
 
         if (trimmed.includes('@')) {
-          // Пользователь ввёл готовый chatId
           chatId = trimmed;
           displayName = '+' + trimmed.split('@')[0].replace(/\D/g, '');
         } else {
@@ -254,6 +284,7 @@ export default function App() {
 
       try {
         const res = await api.sendMessage(credentials, chatId, text);
+
         setChats((prev) =>
           prev.map((c) =>
             c.chatId === chatId
