@@ -27,14 +27,14 @@ export default function App() {
 
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
-  const [status, setStatus] = useState('idle'); // idle | online | error
+  const [status, setStatus] = useState('idle'); 
   const [stateInstance, setStateInstance] = useState('');
   const [notice, setNotice] = useState('');
-
 
   const stopRef = useRef(false);
   const processedRef = useRef(new Set());
 
+ 
   useEffect(() => {
     if (credentials) {
       localStorage.setItem(CREDS_KEY, JSON.stringify(credentials));
@@ -42,6 +42,7 @@ export default function App() {
       localStorage.removeItem(CREDS_KEY);
     }
   }, [credentials]);
+
 
   useEffect(() => {
     if (!credentials) return undefined;
@@ -72,14 +73,14 @@ export default function App() {
         sleepTimer = setTimeout(resolve, ms);
       });
 
-    const appendMessage = (chatId, msg, isOutgoingFromApi = false) => {
+    const appendMessage = (chatId, msg) => {
       setChats((prev) => {
         const existingChat = prev.find((c) => c.chatId === chatId);
         
         if (existingChat) {
-          // проверяем, нет ли уже такого сообщения
           const isDuplicate = existingChat.messages.some((m) => m.id === msg.id);
           
+
           if (isDuplicate) {
             return prev.map((c) =>
               c.chatId === chatId
@@ -100,7 +101,6 @@ export default function App() {
           );
         }
         
-        // если чата еще нет в списке, создаем его
         return [
           ...prev,
           {
@@ -126,26 +126,26 @@ export default function App() {
       processedRef.current.add(receiptId);
 
       const type = body.typeWebhook;
+      const chatId = body.senderData?.chatId;
 
       // входящие сообщения
       if (type === 'incomingMessageReceived') {
         if (body.messageData?.typeMessage === 'textMessage') {
-          const chatId = body.senderData?.chatId;
           const text = body.messageData?.textMessageData?.textMessage;
+          
+          const isFromMe = body.senderData?.sender === body.instanceData?.wid;
+
           if (chatId && text) {
             appendMessage(chatId, {
               id: body.idMessage || `in-${receiptId}`,
               text,
-              outgoing: false,
+              outgoing: isFromMe, // если отправитель вы — сообщение справа
               timestamp: body.timestamp || Math.floor(Date.now() / 1000)
             });
           }
         }
-      } 
-      // исходящие сообщения 
-      else if (type === 'outgoingAPIMessageReceived' || type === 'outgoingMessageReceived') {
+      }      else if (type === 'outgoingMessageReceived' || type === 'outgoingAPIMessageReceived') {
         if (body.messageData?.typeMessage === 'textMessage') {
-          const chatId = body.senderData?.chatId;
           const text = body.messageData?.textMessageData?.textMessage;
           if (chatId && text) {
             appendMessage(chatId, {
@@ -154,11 +154,10 @@ export default function App() {
               outgoing: true,
               pending: false,
               timestamp: body.timestamp || Math.floor(Date.now() / 1000)
-            }, true);
+            });
           }
         }
       } 
-      // изменение статуса инстанса
       else if (type === 'stateInstanceChanged') {
         setStateInstance(body.stateInstance || '');
       }
@@ -211,7 +210,6 @@ export default function App() {
     setNotice('');
   }, []);
 
-  // создание чата
   const handleCreateChat = useCallback(
     async (input) => {
       if (!credentials) return;
